@@ -4,7 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 require("dotenv").config();
-const axios = require("axios");
 const mongoose = require("mongoose");
 const express = require("express");
 const bcrypt = require("bcryptjs");
@@ -15,18 +14,14 @@ const cookieParser = require("cookie-parser");
 const app = express();
 const PORT = 8080;
 
-// SSL/TLS 인증서 파일 경로 설정
-const privateKey = fs.readFileSync("certs/cert.key", "utf8");
-const certificate = fs.readFileSync("certs/cert.crt", "utf8");
-const credentials = { key: privateKey, cert: certificate };
-
 // CORS 설정
 app.use(
   cors({
     credentials: true,
     origin: true,
     methods: ["GET", "POST", "DELETE", "PUT"],
-    allowedHeaders: ["Content-Type"], // Authorization 헤더를 사용하지 않음
+    allowedHeaders: ["Content-Type"],
+    credentials: true,
   })
 );
 
@@ -41,23 +36,28 @@ mongoose
   .catch((err) => console.log(err));
 
 const User = require("./models/user"); // User 모델 생성
-
+const CodiLogModel = require("./models/codiLog.js");
 const salt = bcrypt.genSaltSync(10);
-const jwtSecret = process.env.JWT_SECRET; // 환경변수로 처리
+const jwtSecret = process.env.JWT_SECRET;
 
-// JWT 토큰을 검증하는 미들웨어
+// JWT 토큰을 검증하는 `authenticateToken` 미들웨어
 const authenticateToken = (req, res, next) => {
-  const token = req.query.token; // 쿼리 파라미터에서 토큰을 가져옴
-  if (token == null) return res.sendStatus(401);
+  const { token } = req.query; // 쿼리 파라미터에서 토큰을 가져옴
+  if (token === null) return res.sendStatus(401);
 
   jwt.verify(token, jwtSecret, (err, user) => {
     if (err) return res.sendStatus(403);
+    console.log('---토큰검증--', user);
     req.user = user;
     next();
   });
 };
 
-// 카카오 회원가입 기능
+// 예은 부분 시작 ------------------------------------------
+
+// <회원가입>
+
+// 1. 카카오 회원가입 기능
 app.post("/kakao-register", async (req, res) => {
   const { userid, username, profile_image } = req.body;
   console.log(req.body);
@@ -67,17 +67,17 @@ app.post("/kakao-register", async (req, res) => {
       userid,
       username,
       password: String(Math.floor(Math.random() * 1000000)),
-      profile_image,
+      userprofile: profile_image,
     });
     console.log("문서", userDoc);
     res.json(userDoc);
   } catch (e) {
-    console.error("카카오 로그인 에러", e);
+    console.error("Kakao-Login-Error", e);
     res.status(400).json({ message: "failed", error: e.message });
   }
 });
 
-// 회원가입 기능
+// 2. 일반 회원가입 기능
 app.post("/register", async (req, res) => {
   const { userid, username, password, gender } = req.body;
   console.log(req.body);
@@ -94,12 +94,15 @@ app.post("/register", async (req, res) => {
     res.status(400).json({ message: "failed", error: e.message });
   }
 });
+//--------------------------------------------------
 
-// 로그인 기능
+// <로그인, 로그아웃>
+
+// 1. 로그인 기능
 app.post("/login", async (req, res) => {
   const { userid, password } = req.body;
-  console.log("로그인 기능----", req.body);
   const userDoc = await User.findOne({ userid });
+  console.log('유저문서', userDoc);
 
   if (!userDoc) {
     res.json({ message: "nouser" });
@@ -109,7 +112,14 @@ app.post("/login", async (req, res) => {
   const passOK = bcrypt.compareSync(password, userDoc.password);
   if (passOK) {
     jwt.sign(
-      { userid, username: userDoc.username, id: userDoc._id },
+      {
+        userid,
+        username: userDoc.username,
+        id: userDoc._id,
+        gender: userDoc.gender,
+        userprofile: userDoc.userprofile,
+        shortBio: userDoc.shortBio
+      },
       jwtSecret,
       {},
       (err, token) => {
@@ -120,6 +130,9 @@ app.post("/login", async (req, res) => {
           id: userDoc._id,
           username: userDoc.username,
           userid,
+          shortBio: userDoc.shortBio,
+          gender: userDoc.gender,
+          userprofile: userDoc.userprofile
         });
       }
     );
@@ -127,18 +140,53 @@ app.post("/login", async (req, res) => {
     res.json({ message: "failed" });
   }
 });
-
-// 로그아웃 기능
+// 2. 로그아웃 기능
 app.post("/logout", (req, res) => {
   res.cookie("token", "").json();
 });
 
-// 현재 로그인된 사용자의 ID 가져오기
+// 3. 아이디, 닉네임 중복확인 기능
+app.post("/check-duplicate-id", async (req, res) => {
+  const { userid } = req.body;
+
+  try {
+    const userById = await User.findOne({ userid });
+
+    if (userById) {
+      return res.status(400).json({ message: "아이디가 이미 존재합니다." });
+    }
+
+    res.json({ message: "사용 가능한 아이디입니다." });
+  } catch (e) {
+    res.status(500).json({ message: "서버 오류", error: e.message });
+  }
+});
+
+app.post("/check-duplicate-username", async (req, res) => {
+  const { username } = req.body;
+
+  try {
+    const userByUsername = await User.findOne({ username });
+
+    if (userByUsername) {
+      return res.status(400).json({ message: "닉네임이 이미 존재합니다." });
+    }
+
+    res.json({ message: "사용 가능한 닉네임입니다." });
+  } catch (e) {
+    res.status(500).json({ message: "서버 오류", error: e.message });
+  }
+});
+//---------------------------------------------------
+
+// <마이페이지 - 개인정보 수정 페이지>
+
+// 1. 현재 로그인된 사용자의 ID 가져오기
 app.get("/getUserid", authenticateToken, (req, res) => {
   res.json({ userid: req.user.userid });
 });
 
-// 사용자 정보 업데이트
+// 2. 사용자 정보 업데이트
 app.post("/updateUserInfo", authenticateToken, async (req, res) => {
   const { password, gender } = req.body;
 
@@ -155,7 +203,28 @@ app.post("/updateUserInfo", authenticateToken, async (req, res) => {
   }
 });
 
-/// ~~~~~~~~~~~~~~ 나영 부분 시작~~~~~~~~~~~~~~
+// 3. 회원 탈퇴
+app.delete("/deleteUser", authenticateToken, async (req, res) => {
+  try {
+    await User.findByIdAndDelete(req.user.id);
+    res.clearCookie("token"); //로그아웃 처리
+    res.json({ message: "User deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+//------------------------------------------------------------
+
+// <마이페이지 - 메인페이지>
+const UserRouter = require('./routes/userRoutes.js')
+const CommuCollRouter = require("./routes/commuColl.js");
+app.use("/user", UserRouter) //마이페이지 회원정보 관련
+app.use("/mypage", CommuCollRouter); //내 커뮤니티 활동
+
+//------------------------------------------------------------
+
+/// ~~~~~~~~~~~~~~~~~~~~~~ 나영 부분 시작~~~~~~~~~~~~~~~~~~~~~
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // codiLogDetail GET
@@ -277,8 +346,6 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // codiWrite POST 요청 핸들러
-const CodiLogModel = require("./models/codiLog");
-
 app.post("/codiWrite", upload.single("file"), async (req, res) => {
   const { memo, tag, address, maxTemp, minTemp, codiDate, sky, userid } =
     req.body;
@@ -378,7 +445,7 @@ app.post("/talkBox", async (req, res) => {
   // 날씨를 전달해주는 prompt
   let prompt = "";
   prompt += `오늘의 날씨를 제시해줄게. 현재기온 : ${temperature}°C, 최고기온/최저기온 : ${maxTemp}°C / ${minTemp}°C, 자외선 : ${uv}, 미세먼지 : ${dust}, 강수확률: ${popValue}%`;
-  prompt += `날씨는 3~4줄로 요약해서 말해줘야 하고, 친구에게 말하듯이 친근한 말투로 말해줘.`;
+  prompt += `날씨는 3줄로 요약해서 말해줘야 하고, 친구에게 말하듯이 친근한 말투로 말해줘.`;
   prompt += `주의할 점은 숫자로 된 수치정보는 언급하지 말고 아래의 기준에 맞춰서 답변해줘.
   1. 최저기온이 25°C 이상이면 겉옷 얘기 금지
   2. 미세먼지 값이 좋음 또는 보통이면 마스크 얘기 금지, 미세먼지 얘기 금지
@@ -447,6 +514,7 @@ app.post("/codiTalkBox", async (req, res) => {
     uv,
     clothes,
     selectedTemp,
+    gender,
   } = req.body;
 
   // 날씨를 전달해주는 prompt
@@ -454,10 +522,10 @@ app.post("/codiTalkBox", async (req, res) => {
   codiPrompt += `오늘의 날씨를 제시해줄게. 현재기온 : ${temperature}°C, 최고기온/최저기온 : ${maxTemp}°C / ${minTemp}°C, 자외선 : ${uv}, 미세먼지 : ${dust}, 강수확률: ${popValue}%`;
   codiPrompt += `오늘의 날씨와 비교해서 ${selectedTemp}한 코디를 알려줘`;
   codiPrompt += `코디 정보는 3줄 이내로 요약해서 말해줘야 하고, 친구에게 말하듯이 친근한 말투로 말해줘`;
-  codiPrompt += `사용자의 성별은 여자`;
+  codiPrompt += `사용자의 성별은 ${gender}`;
   codiPrompt += `사용자의 옷장에는 ${clothes} 이런 옷들이 들어있어. 이 옷장에 있는 옷들을 조합해서 추천해줘`;
   codiPrompt += `tops에는 각각 긴팔, 반팔, 민소매 종류로 있고, bottoms에는 각각 긴바지, 반바지 종류가 있어`;
-  codiPrompt += `주의할 점은 날씨에 관한 얘기는 하면 안 되고, 사용자의 성별이 여자일 경우에만 블라우스, 롱스커트, 미니스커트, 원피스를 제시해줘. 남자일 경우에는 저 코디를 제시받으면 안 돼`;
+  codiPrompt += `주의할 점은 날씨에 관한 얘기는 하면 안 되고, 사용자의 성별이 female일 경우에만 블라우스, 롱스커트, 미니스커트, 원피스를 제시해줘. male일 경우에는 저 코디를 제시받으면 안 돼`;
   codiPrompt += `시원한 코디를 알려줄 때, 현재기온과 최고기온이 25°C 이상일 때는 outers 종류는 추천하면 안 돼`;
   codiPrompt += `자외선이 아무리 높아도 자외선 차단제 얘기는 하면 안 돼`;
   codiPrompt += `신발 얘기는 강수확률이 60% 이상일 때만 "비오니까 장화 신고 가!" 덧붙여줘. 그 외에는 신발 얘기는 하면 안 돼`;
@@ -498,7 +566,7 @@ async function callCodiAI(codiPrompt) {
         { role: "user", content: codiPrompt },
       ],
       max_tokens: 1000, // 돈 많이 나갈까봐 글자수 제한;
-      temperature: 0.8, // 0.0 ~ 1.0 사이의 값. 0.0에 가까울수록 더 안전한 선택을, 1.0에 가까울수록 더 창의적인 선택을 함.
+      temperature: 0.5, // 0.0 ~ 1.0 사이의 값. 0.0에 가까울수록 더 안전한 선택을, 1.0에 가까울수록 더 창의적인 선택을 함.
       top_p: 1, // 0.0 ~ 1.0 사이의 값. 1.0에 가까울수록 다양한 선택을 함.
       frequency_penalty: 0.0, // 0.0 ~ 1.0 사이의 값. 0.0에 가까울수록 더 반복적인 선택을 함.
       presence_penalty: 0.0, // 0.0 ~ 1.0 사이의 값. 0.0에 가까울수록 더 새로운 선택을 함.
@@ -513,28 +581,10 @@ async function callCodiAI(codiPrompt) {
 
 // //// <<<<<<< 지선 부분 끝
 
-// ---- 마이페이지 - 내 커뮤니티 활동 - 시작 -------
-
-const CommuCollRouter = require("./routes/commuColl.js");
-app.use("/mypage", CommuCollRouter);
-
-// ---- 마이페이지 - 내 커뮤니티 활동 - 끝 ---------
-
 // 기본 루트 경로(/)에 대한 GET 요청 핸들러
 app.get("/", (req, res) => {
   res.send("app.get 잘 돌아감");
 });
-
-// 모든 경로에 대해 React 앱의 index.html 제공 --> 이게 다른 get요청보다 후순위어야 오류가 안 나서 아래로 옮겼습니다! -나영
-// app.get("*", (req, res) => {
-//   res.sendFile(path.join(__dirname, "..", "client", "build", "index.html"));
-// });
-
-// HTTPS 서버 생성 및 리스닝 - 맥
-// const httpsServer = https.createServer(credentials, app);
-// httpsServer.listen(PORT, () => {
-//   console.log(`${PORT}번 포트 돌아가는 즁~!`);
-// });
 
 // HTTP 서버 - 윈도우
 app.listen(PORT, () => {

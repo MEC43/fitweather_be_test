@@ -6,7 +6,7 @@ const UserSchema = new Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String },
   gender: { type: String },
-  profile_image: { type: String },
+  userprofile: { type: String },
 });
 
 const UserModel = model("User", UserSchema);
