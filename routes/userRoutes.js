@@ -48,9 +48,11 @@ router.post("/check-duplicate-id", async (req, res) => {
     const userById = await User.findOne({ userid });
 
     if (userById) {
+      // console.log('이미 있는 아이디');
       return res.json({ message: "아이디가 이미 존재합니다." });
     }
 
+    // console.log('없는 아이디');
     res.json({ message: "사용 가능한 아이디입니다." });
   } catch (e) {
     res.status(500).json({ message: "서버 오류", error: e.message });
@@ -59,12 +61,13 @@ router.post("/check-duplicate-id", async (req, res) => {
 
 router.post("/check-duplicate-username", async (req, res) => {
   const { username } = req.body;
+  console.log('입력한 닉네임', username);
 
   try {
     const userByUsername = await User.findOne({ username });
 
     if (userByUsername) {
-      return res.status(400).json({ message: "닉네임이 이미 존재합니다." });
+      return res.json({ message: "닉네임이 이미 존재합니다." });
     }
 
     res.json({ message: "사용 가능한 닉네임입니다." });

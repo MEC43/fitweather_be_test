@@ -26,7 +26,7 @@ const generateCohereResponse = async (preamble, prompt) => {
 router.post("/talkBox", async (req, res) => {
   const { temperature, maxTemp, minTemp, popValue, dust, uv } = req.body;
 
-  let preamble = `전달받은 오늘의 날씨를 친구에게 친근한 말투로 친절하게 알려주는 역할이야. 
+  let preamble = `전달받은 오늘의 날씨를 종합해서 친구에게 친근한 말투로 친절하게 알려주는 역할이야. 
       숫자로 된 수치정보는 언급하면 안돼. 3~4문장으로 간결하게 알려줘.
       날씨이야기만 하고 옷차림에 대해서는 이야기 금지.
       최저기온이 25°C 이상이면 겉옷 이야기 금지.
@@ -40,7 +40,7 @@ router.post("/talkBox", async (req, res) => {
 
   try {
     const response = await generateCohereResponse(preamble, prompt);
-    console.log('코히어작동', response);
+    // console.log('코히어작동', response);
     res.json({ response });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -62,15 +62,12 @@ router.post("/codiTalkBox", async (req, res) => {
       반드시 사용자의 옷장에 있는 옷들로만 추천해줘. 옷장에 없는 옷은 절대로 추천 금지.
       옷 색깔, 옷 컬러 제시 금지, 반드시 문장으로 알려줘야돼. 비에 관한 이야기 금지. 한국어로만 이야기해줘.`
 
-
   let prompt = `오늘의 날씨를 알려줄게.현재기온은 ${temperature}°C, 최고기온은 ${maxTemp}°C이고, 최저기온은 ${minTemp}°C이야.
     자외선은 ${uv}, 미세먼지는 ${dust}, 강수확률은 ${popValue}% 야.`;
 
-
-
   try {
     const response = await generateCohereResponse(preamble, prompt);
-    console.log('코히어작동', response);
+    // console.log('코히어작동', response);
     res.json({ response });
   } catch (error) {
     res.status(500).json({ error: error.message });
